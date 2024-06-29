@@ -16,9 +16,13 @@ from utils.process import RandRotation, RandHorizontalFlip
 from scipy.stats import spearmanr, pearsonr
 from torch.utils.tensorboard import SummaryWriter 
 from tqdm import tqdm
+import os
+import numpy as np
+import pandas as pd
+import cv2
+from torch.utils.data import Dataset
 
-
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 
 def setup_seed(seed):
@@ -119,6 +123,56 @@ def eval_epoch(config, epoch, net, criterion, test_loader):
         return np.mean(losses), rho_s, rho_p
 
 
+class GFIQA(Dataset):
+    def __init__(self, dis_path, csv_file_name, transform=None):
+        super(GFIQA, self).__init__()
+        self.dis_path = dis_path
+        self.csv_file_name = csv_file_name
+        self.transform = transform
+        
+        data = pd.read_csv(self.csv_file_name)
+        all_img_names = data['img_name'].tolist()
+        all_scores = data['mos'].astype(float).tolist()
+        
+        filtered_img_names = []
+        filtered_scores = []
+        for img_name, score in zip(all_img_names, all_scores):
+            img_path = os.path.join(self.dis_path, img_name)
+            if os.path.exists(img_path):
+                filtered_img_names.append(img_name)
+                filtered_scores.append(score)
+        
+        self.score_data = np.array(filtered_scores)
+        self.score_data = self.normalize(self.score_data).reshape(-1, 1)
+        
+        self.data_dict = {'d_img_list': filtered_img_names, 'score_list': self.score_data}
+
+
+    def normalize(self, data):
+        data_range = np.max(data) - np.min(data)
+        return (data - np.min(data)) / data_range
+
+    def __len__(self):
+        return len(self.data_dict['d_img_list'])
+
+    def __getitem__(self, idx):
+        d_img_name = self.data_dict['d_img_list'][idx]
+        d_img_path = os.path.join(self.dis_path, d_img_name) 
+        d_img = cv2.imread(d_img_path, cv2.IMREAD_COLOR)
+        d_img = cv2.resize(d_img, (224, 224), interpolation=cv2.INTER_CUBIC)
+        d_img = cv2.cvtColor(d_img, cv2.COLOR_BGR2RGB)
+        d_img = np.array(d_img).astype('float32') / 255
+        d_img = np.transpose(d_img, (2, 0, 1))  
+
+        score = self.data_dict['score_list'][idx]
+        sample = {'d_img_org': d_img, 'score': score}
+        
+        if self.transform:
+            sample = self.transform(sample)
+        
+        return sample
+    
+    
 if __name__ == '__main__':
     cpu_num = 1
     os.environ['OMP_NUM_THREADS'] = str(cpu_num)
@@ -133,11 +187,17 @@ if __name__ == '__main__':
     # config file
     config = Config({
         # dataset path
-        "dataset_name": "koniq10k",
+        # "dataset_name": "koniq10k",
+        "dataset_name": "GFIQA", #TODO
 
-        # PIPAL
-        "train_dis_path": "/mnt/IQA_dataset/PIPAL22/Train_dis/",
-        "val_dis_path": "/mnt/IQA_dataset/PIPAL22/Val_dis/",
+
+        # # PIPAL
+        # "train_dis_path": "/mnt/IQA_dataset/PIPAL22/Train_dis/", 
+        # "val_dis_path": "/mnt/IQA_dataset/PIPAL22/Val_dis/", 
+        "train_dis_path": "/mnt/186/c/leolu030066/dataset/GFIQA-20k/image/train", #TODO
+        "val_dis_path": "/mnt/186/c/leolu030066/dataset/GFIQA-20k/image/val", #TODO
+        "test_dis_path": "/mnt/186/c/leolu030066/dataset/GFIQA-20k/image/test", #TODO
+
         "pipal22_train_label": "./data/PIPAL22/pipal22_train.txt",
         "pipal22_val_txt_label": "./data/PIPAL22/pipal22_val.txt",
 
@@ -237,25 +297,27 @@ if __name__ == '__main__':
         label_train_path = config.koniq10k_label
         label_val_path = config.koniq10k_label
         Dataset = Koniq10k
+        
+    elif config.dataset_name == 'GFIQA':
+        dis_train_path = config.train_dis_path
+        dis_val_path = config.val_dis_path
+        dis_test_path = config.test_dis_path
+        Dataset = GFIQA
     else:
         pass
     
     # data load
     train_dataset = Dataset(
         dis_path=dis_train_path,
-        txt_file_name=label_train_path,
-        list_name=train_name,
+        csv_file_name='/mnt/186/c/leolu030066/dataset/GFIQA-20k/mos_val_rating.csv',
         transform=transforms.Compose([RandCrop(patch_size=config.crop_size), 
             Normalize(0.5, 0.5), RandHorizontalFlip(prob_aug=config.prob_aug), ToTensor()]),
-        keep_ratio=config.train_keep_ratio
     )
     val_dataset = Dataset(
         dis_path=dis_val_path,
-        txt_file_name=label_val_path,
-        list_name=val_name,
+        csv_file_name='/mnt/186/c/leolu030066/dataset/GFIQA-20k/mos_val_rating.csv',
         transform=transforms.Compose([RandCrop(patch_size=config.crop_size),
             Normalize(0.5, 0.5), ToTensor()]),
-        keep_ratio=config.val_keep_ratio
     )
 
     logging.info('number of train scenes: {}'.format(len(train_dataset)))
@@ -275,9 +337,32 @@ if __name__ == '__main__':
 
     logging.info('{} : {} [M]'.format('#Params', sum(map(lambda x: x.numel(), net.parameters())) / 10 ** 6))
 
-    net = nn.DataParallel(net)
-    net = net.cuda()
+    print("CUDA Available: ", torch.cuda.is_available())
+    print("CUDA Device Count: ", torch.cuda.device_count())
+    
 
+    if torch.cuda.is_available():
+        device = torch.device("cuda:0")
+        print("Using GPU:", torch.cuda.get_device_name(0))
+    else:
+        device = torch.device("cpu")
+        print("Using CPU")
+
+    
+    
+    net = net.to(device)
+
+    # if torch.cuda.device_count() > 1:
+    #     net = torch.nn.DataParallel(net)
+        
+    
+    # # net = nn.DataParallel(net)
+    # # net = net.cuda()
+    
+
+    # if torch.cuda.device_count() > 1:
+    #     net = nn.DataParallel(net) 
+        
     # loss function
     criterion = torch.nn.MSELoss()
     optimizer = torch.optim.Adam(
