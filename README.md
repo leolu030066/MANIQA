@@ -5,11 +5,10 @@
 
 Modifications
 This section lists the modifications made to train_maniqa.py and the addition of split_data.py, indicating the lines where new code has been added.
-M
-odified 'train_maniqa.py'
-- Added Dataset Class
+Modified 'train_maniqa.py'
+<!-- - Added Dataset Class
 Added the GFIQA dataset class
-(line 126~173)
+(line 126~173) -->
 - Added Configuration
 Change the path of dataset  
 (line 188~199)
