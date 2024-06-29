@@ -1,5 +1,31 @@
 # MANIQA: Multi-dimension Attention Network for No-Reference Image Quality Assessment
 
+
+(From Liang-Yu)
+
+Modifications
+This section lists the modifications made to train_maniqa.py and the addition of split_data.py, indicating the lines where new code has been added.
+M
+odified 'train_maniqa.py'
+- Added Dataset Class
+Added the GFIQA dataset class
+(line 126~173)
+- Added Configuration
+Change the path of dataset  
+(line 188~199)
+- Added Dataset Loading
+Added support for the GFIQA dataset
+(line 301~305)
+
+Modified 'split_data.py'
+-You can change the ratio of the split and the path of your own dataset (default train/val/test: 0.7:0.1:0.2)
+run python split_data.py
+
+
+
+
+
+
 Sidi Yang*, Tianhe Wu*, Shuwei Shi, Shanshan Lao, Yuan Gong, Mingdeng Cao, Jiahao Wang and Yujiu Yang
 
 [Tsinghua University Intelligent Interaction Group](https://sites.google.com/view/iigroup-thu/home)
